@@ -238,3 +238,65 @@ export function findFirstCategoryWithName(
 
   return null;
 }
+
+
+export function normalizeCategoryLookupValue(value?: string | null) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[_/]+/g, " ")
+    .replace(/-+/g, " ")
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function findCategoryByCollectionValue(
+  nodes: CatalogCategoryTreeNode[],
+  value?: string | null,
+): CatalogCategoryTreeNode | null {
+  const target = normalizeCategoryLookupValue(value);
+
+  if (!target) return null;
+
+  for (const node of nodes) {
+    const candidates = [
+      node.name,
+      node.slug,
+      node.seoSlug,
+      (node as any).path,
+      (node as any).url,
+      (node as any).title,
+      (node as any).label,
+      (node as any).handle,
+    ];
+
+    const matched = candidates.some((candidate) => {
+      return normalizeCategoryLookupValue(candidate) === target;
+    });
+
+    if (matched) {
+      return node;
+    }
+
+    const found = findCategoryByCollectionValue(node.children || [], value);
+
+    if (found) return found;
+  }
+
+  return null;
+}
+
+export function buildCategoryHrefFromCollectionValue(
+  nodes: CatalogCategoryTreeNode[],
+  value?: string | null,
+) {
+  const category = findCategoryByCollectionValue(nodes, value);
+
+  if (category) {
+    return getCategoryHref(category);
+  }
+
+  return "";
+}

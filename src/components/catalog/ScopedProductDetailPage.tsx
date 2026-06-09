@@ -28,7 +28,15 @@ import { addToCart } from "@/lib/api/cart.api";
 import {
   CatalogProduct,
   CatalogVariant,
+  CatalogCategoryTreeNode,
+  getCatalogCategoryTree,
 } from "@/lib/api/catalog.api";
+
+import {
+  buildCategoryHrefFromCollectionValue,
+  getCategoryTreeArray,
+} from "@/lib/category-tree.utils";
+
 import { apiRequest } from "@/lib/api/client";
 import { isPublicVisibleProduct } from "@/lib/product-visibility";
 
@@ -1246,21 +1254,30 @@ function getBreadcrumbSlug(item: any) {
   );
 }
 
-function getProductBreadcrumbItems(product: DetailProduct) {
+function getProductBreadcrumbItems(
+  product: DetailProduct,
+  categoryTree: CatalogCategoryTreeNode[],
+) {
   const raw = product.raw || {};
+
+  const collectionBreadcrumb = getCollectionBreadcrumbItems(product, categoryTree);
+
+  if (collectionBreadcrumb.length) {
+    return collectionBreadcrumb;
+  }
 
   const backendBreadcrumb = Array.isArray(product.breadcrumb)
     ? product.breadcrumb
-       .map((item: any) => ({
-  label: getBreadcrumbLabel(item),
-  slug: getBreadcrumbSlug(item),
-  path: typeof item === "object" ? readFirst(item.path) : "",
-  url: typeof item === "object" ? readFirst(item.url) : "",
-  href:
-    typeof item === "object"
-      ? readFirst(item.url) || (item.path ? `/${item.path}` : "")
-      : "",
-}))
+        .map((item: any) => ({
+          label: getBreadcrumbLabel(item),
+          slug: getBreadcrumbSlug(item),
+          path: typeof item === "object" ? readFirst(item.path) : "",
+          url: typeof item === "object" ? readFirst(item.url) : "",
+          href:
+            typeof item === "object"
+              ? readFirst(item.url) || (item.path ? `/${item.path}` : "")
+              : "",
+        }))
         .filter((item) => item.label)
     : [];
 
@@ -1312,27 +1329,115 @@ function getProductBreadcrumbItems(product: DetailProduct) {
     raw.categoryName,
     product.category,
     raw.category,
-    raw.primaryCollection,
+    raw.primaryCategory,
     raw.productType,
-    raw.type
+    raw.type,
   );
 
   const categorySlug = readFirst(
     product.categorySlug,
     raw.categorySlug,
-    raw.primaryCollection,
+    raw.primaryCategory,
+    raw.category,
     raw.productType,
-    raw.type
+    raw.type,
   );
 
-return categoryName
-  ? [
-      {
-        label: categoryName,
-        slug: categorySlug,
-      },
-    ]
-  : [];
+  return categoryName
+    ? [
+        {
+          label: categoryName,
+          slug: categorySlug,
+        },
+      ]
+    : [];
+}
+
+function getProductPrimaryCollection(raw: any) {
+  return readFirst(
+    raw?.metafields?.primaryCollection,
+    raw?.primaryCollection,
+    raw?.collection,
+  );
+}
+
+function getProductSecondaryCollection(raw: any) {
+  return readFirst(
+    raw?.metafields?.secondaryCollection,
+    raw?.secondaryCollection,
+  );
+}
+
+
+function getProductSeeMoreFrom(raw: any) {
+  const rawValue = readFirst(
+    raw?.metafields?.seeMoreFrom,
+    raw?.seeMoreFrom,
+  );
+
+  if (!rawValue) return [];
+
+  return rawValue
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item, index, list) => {
+      return (
+        list.findIndex(
+          (value) => normalizeText(value) === normalizeText(item),
+        ) === index
+      );
+    });
+}
+
+function getSeeMoreFromHref(
+  label: string,
+  categoryTree: CatalogCategoryTreeNode[],
+  currentCategoryPath: string,
+) {
+  const categoryHref = buildCategoryHrefFromCollectionValue(categoryTree, label);
+
+  if (categoryHref) return categoryHref;
+
+  return currentCategoryPath ? `/${currentCategoryPath}` : "/collection";
+}
+
+function buildCollectionBreadcrumbItem(
+  label: string,
+  categoryTree: CatalogCategoryTreeNode[],
+) {
+  const href = buildCategoryHrefFromCollectionValue(categoryTree, label);
+
+  return {
+    label,
+    href,
+    slug: label,
+  };
+}
+
+function getCollectionBreadcrumbItems(
+  product: DetailProduct,
+  categoryTree: CatalogCategoryTreeNode[],
+) {
+  const raw = product.raw || {};
+
+  const primaryCollection = getProductPrimaryCollection(raw);
+  const secondaryCollection = getProductSecondaryCollection(raw);
+
+  const items: BreadcrumbItem[] = [];
+
+  if (primaryCollection) {
+    items.push(buildCollectionBreadcrumbItem(primaryCollection, categoryTree));
+  }
+
+  if (
+    secondaryCollection &&
+    normalizeText(secondaryCollection) !== normalizeText(primaryCollection)
+  ) {
+    items.push(buildCollectionBreadcrumbItem(secondaryCollection, categoryTree));
+  }
+
+  return items;
 }
 
 function getCategoryBreadcrumbHref(
@@ -1378,6 +1483,8 @@ export function ScopedProductDetailPage({
     .trim();
 
   const [product, setProduct] = useState<DetailProduct | null>(null);
+
+  const [categoryTree, setCategoryTree] = useState<CatalogCategoryTreeNode[]>([]);
 
   const [similarColorProducts, setSimilarColorProducts] = useState<RelatedProductCard[]>([]);
   const [selectedImage, setSelectedImage] = useState("");
@@ -1557,6 +1664,34 @@ if (hydratedSimilarColorProducts.length) {
     };
   }, [cleanCategoryPath, cleanProductId]);
 
+
+  useEffect(() => {
+  let mounted = true;
+
+  async function loadCategoryTreeForBreadcrumb() {
+    try {
+      const response = await getCatalogCategoryTree();
+      const tree = getCategoryTreeArray(response);
+
+      if (!mounted) return;
+
+      setCategoryTree(tree);
+    } catch (error) {
+      console.error("Product breadcrumb category tree load failed:", error);
+
+      if (!mounted) return;
+
+      setCategoryTree([]);
+    }
+  }
+
+  loadCategoryTreeForBreadcrumb();
+
+  return () => {
+    mounted = false;
+  };
+}, []);
+
   const selectedVariant = useMemo(() => {
     if (!product) return null;
     return findMatchingVariant(product, selectedSize, selectedColor);
@@ -1588,8 +1723,12 @@ if (hydratedSimilarColorProducts.length) {
 
   const productDetailRows = product ? buildProductDetailRows(product) : [];
 
- const breadcrumbItems: BreadcrumbItem[] = product
-  ? getProductBreadcrumbItems(product)
+const seeMoreFromItems = product
+  ? getProductSeeMoreFrom(product.raw || {})
+  : [];
+
+const breadcrumbItems: BreadcrumbItem[] = product
+  ? getProductBreadcrumbItems(product, categoryTree)
   : [];
 
   const selectedMedia =
@@ -2370,31 +2509,51 @@ if (hydratedSimilarColorProducts.length) {
                 </div>
               ) : null}
 
-              <div className="grid gap-0 pt-8">
-                <ProductPromise
-                  icon={<Truck />}
-                  title="Shipping"
-                  copy={
-                    product.deliveryOptions.find(
-                      (item) => item.id === selectedDelivery
-                    )?.estimatedArrivalText ||
-                    product.shippingAndReturns ||
-                    "Shipping timeline depends on selected delivery option."
-                  }
-                />
+           <div className="grid grid-cols-3 gap-3 pt-8">
+  <ProductPromise
+    icon={<Truck />}
+    title="Shipping"
+    copy={
+      product.deliveryOptions.find(
+        (item) => item.id === selectedDelivery
+      )?.estimatedArrivalText ||
+      product.shippingAndReturns ||
+      "Shipping timeline depends on selected delivery option."
+    }
+  />
 
-                <ProductPromise
-                  icon={<RefreshCcw />}
-                  title="Returns"
-                  copy="Eligible items can be resized, restyled, or returned as per policy."
-                />
+  <ProductPromise
+    icon={<RefreshCcw />}
+    title="Returns"
+    copy="Easy returns"
+  />
 
-                <ProductPromise
-                  icon={<ShieldCheck />}
-                  title="Secure Checkout"
-                  copy="Protected payment flow and order support."
-                />
-              </div>
+  <ProductPromise
+    icon={<ShieldCheck />}
+    title="Secure"
+    copy="Safe checkout"
+  />
+</div>
+
+              {seeMoreFromItems.length ? (
+  <div className="mt-5 grid gap-3">
+    {seeMoreFromItems.map((item) => (
+      <a
+        key={item}
+        href={getSeeMoreFromHref(item, categoryTree, cleanCategoryPath)}
+        className="group flex min-h-[54px] items-center justify-between rounded-[13px] border border-[#ddd5c9] bg-white px-5 text-left shadow-[0_8px_22px_rgba(23,17,13,0.04)] transition-all duration-300 hover:-translate-y-0.5 hover:border-[#15100c] hover:shadow-[0_16px_38px_rgba(23,17,13,0.10)]"
+      >
+        <span className="min-w-0 truncate text-[15px] font-semibold tracking-[0.06em] text-[#5f5a54]">
+          See More From {item}
+        </span>
+
+        <span className="ml-4 shrink-0 text-[28px] leading-none text-[#7a746e] transition-transform duration-300 group-hover:translate-x-1 group-hover:text-[#15100c]">
+          ›
+        </span>
+      </a>
+    ))}
+  </div>
+) : null}
             </div>
           </aside>
         </div>
@@ -2601,20 +2760,18 @@ function ProductPromise({
   copy: string;
 }) {
   return (
-    <div className="group flex gap-4 border-t border-[#ddd5c9] bg-white px-0 py-5 transition-colors duration-300 hover:text-[#b98262]">
-      <span className="mt-0.5 text-[#b98262] transition-transform duration-300 group-hover:translate-x-1 [&>svg]:h-4 [&>svg]:w-4">
+    <div className="group flex min-h-[112px] flex-col items-center justify-center rounded-[18px] border border-[#ddd5c9] bg-[#fbf8f1] px-3 py-4 text-center shadow-[0_10px_28px_rgba(23,17,13,0.04)] transition-all duration-300 hover:-translate-y-1 hover:border-[#15100c] hover:bg-white hover:shadow-[0_18px_45px_rgba(23,17,13,0.10)]">
+      <span className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-white text-[#b98262] shadow-[0_8px_18px_rgba(23,17,13,0.06)] transition-all duration-300 group-hover:bg-[#15100c] group-hover:text-white [&>svg]:h-5 [&>svg]:w-5 [&>svg]:stroke-[1.7]">
         {icon}
       </span>
 
-      <div className="transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:translate-x-1">
-        <h3 className="text-[12px] uppercase tracking-[0.22em] text-[#15100c] transition-colors duration-300 group-hover:text-[#b98262]">
-          {title}
-        </h3>
+      <h3 className="text-[9px] font-semibold uppercase tracking-[0.24em] text-[#15100c]">
+        {title}
+      </h3>
 
-        <p className="mt-1 text-[12px] leading-5 text-[#7a746e]">
-          {copy}
-        </p>
-      </div>
+      <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#7a746e]">
+        {copy}
+      </p>
     </div>
   );
 }

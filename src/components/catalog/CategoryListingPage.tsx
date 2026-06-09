@@ -51,6 +51,7 @@ import {
 } from "@/lib/api/catalog.api";
 
 import {
+  buildCategoryHrefFromCollectionValue,
   findCategoryBySlug,
   getCategoryHref,
   getCategorySlug,
@@ -812,9 +813,45 @@ return {
 };
 }
 
+function readFirstProductValue(...values: any[]) {
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+
+    const text = String(value).trim();
+
+    if (!text) continue;
+    if (text.toLowerCase() === "null") continue;
+    if (text.toLowerCase() === "undefined") continue;
+
+    return text;
+  }
+
+  return "";
+}
+
+function getProductPrimaryCollectionForListing(product: BridesmaidProduct) {
+  const raw = product.raw as any;
+
+  return readFirstProductValue(
+    raw?.metafields?.primaryCollection,
+    raw?.primaryCollection,
+    raw?.collection,
+  );
+}
+
+function getProductSecondaryCollectionForListing(product: BridesmaidProduct) {
+  const raw = product.raw as any;
+
+  return readFirstProductValue(
+    raw?.metafields?.secondaryCollection,
+    raw?.secondaryCollection,
+  );
+}
+
 function getProductDetailHref(
   product: BridesmaidProduct,
   categoryPath: string,
+  categoryTree: CatalogCategoryTreeNode[] = [],
 ) {
   const cleanCategoryPath = String(categoryPath || "")
     .replace(/^\/+|\/+$/g, "")
@@ -824,11 +861,36 @@ function getProductDetailHref(
     (product.raw as any)?.slug || product.productId || "",
   ).trim();
 
-  if (!cleanCategoryPath || !productSlugOrId) {
+  if (!productSlugOrId) {
     return "#";
   }
 
-  return `/${cleanCategoryPath}/${encodeURIComponent(productSlugOrId)}`;
+  const primaryCollection = getProductPrimaryCollectionForListing(product);
+  const secondaryCollection = getProductSecondaryCollectionForListing(product);
+
+  const primaryHref = buildCategoryHrefFromCollectionValue(
+    categoryTree,
+    primaryCollection,
+  );
+
+  const secondaryHref = buildCategoryHrefFromCollectionValue(
+    categoryTree,
+    secondaryCollection,
+  );
+
+  const collectionHref = secondaryHref || primaryHref;
+
+  if (collectionHref) {
+    return `${collectionHref.replace(/\/+$/g, "")}/${encodeURIComponent(
+      productSlugOrId,
+    )}`;
+  }
+
+  if (cleanCategoryPath) {
+    return `/${cleanCategoryPath}/${encodeURIComponent(productSlugOrId)}`;
+  }
+
+  return `/products/${encodeURIComponent(productSlugOrId)}`;
 }
 
 function getCatalogPaginationMeta(response: any, fallbackCount: number) {
@@ -1428,11 +1490,12 @@ mapping/public status check karo.
               className="grid grid-cols-1 gap-x-[18px] gap-y-[34px] sm:grid-cols-2 xl:grid-cols-4"
             >
               {paginatedProducts.map((product, index) => (
-  <BridesmaidProductCard
+<BridesmaidProductCard
   key={`${product.productId}-${product.variantId || product.name}`}
   product={product}
   index={index}
   categoryPath={selectedCategoryPath}
+  categoryTree={categoryTree}
   heightOptions={heightOptions}
   isAssigned={assignedProductId === product.productId}
   isWishlisted={isWishlisted(product.productId)}
@@ -2580,6 +2643,7 @@ function BridesmaidProductCard({
   product,
   index = 0,
   categoryPath,
+  categoryTree,
   heightOptions,
   isAssigned,
   isWishlisted,
@@ -2590,7 +2654,8 @@ function BridesmaidProductCard({
   product: BridesmaidProduct;
   index?: number;
   categoryPath: string;
-  heightOptions: CatalogHeightOption[];
+categoryTree: CatalogCategoryTreeNode[];
+heightOptions: CatalogHeightOption[];
   isAssigned: boolean;
   isWishlisted: boolean;
   isAssigning?: boolean;
@@ -2607,7 +2672,11 @@ function BridesmaidProductCard({
   );
   const hasImage = Boolean(product.image);
 
-  const productDetailHref = getProductDetailHref(product, categoryPath);
+ const productDetailHref = getProductDetailHref(
+  product,
+  categoryPath,
+  categoryTree,
+);
 
   const [selectedColorName, setSelectedColorName] = useState(
     product.colorName || backendColors[0] || "",
@@ -2844,14 +2913,14 @@ const [wishlistError, setWishlistError] = useState("");
   {wishlistLoading ? (
     <Loader2 className="h-6 w-6 animate-spin" />
   ) : (
-    <Heart
-      className={[
-        "h-7 w-7 stroke-[1.8] drop-shadow-[0_1px_3px_rgba(255,255,255,0.85)]",
-        isWishlisted
-          ? "fill-[#000000] text-[#020201]"
-          : "fill-transparent text-[#020101]",
-      ].join(" ")}
-    />
+   <Heart
+  className={[
+    "h-7 w-7 stroke-[1.8] drop-shadow-[0_1px_3px_rgba(255,255,255,0.85)]",
+    isWishlisted
+      ? "fill-red-600 text-red-600"
+      : "fill-transparent text-[#15100c]",
+  ].join(" ")}
+/>
   )}
 </button>
 

@@ -10,6 +10,7 @@ import {
   Search,
   ShoppingBag,
   User,
+  X,
   XCircle,
 } from "lucide-react";
 
@@ -71,6 +72,9 @@ type SearchCategorySuggestion = {
   level: number;
   score: number;
 };
+
+const RECENT_SEARCH_STORAGE_KEY = "shahsi_recent_searches";
+const MAX_RECENT_SEARCHES = 6;
 
 function normalizeSearchText(value: any) {
   return String(value || "")
@@ -141,7 +145,7 @@ function getMatchedSearchCategories(
 ) {
   const normalizedQuery = normalizeSearchText(query);
 
-  if (!normalizedQuery) return [];
+  if (!normalizedQuery || normalizedQuery.length < 2) return [];
 
   const queryWords = normalizedQuery.split(" ").filter(Boolean);
   const categories = flattenCategoryTreeForSearch(categoryTree);
@@ -160,24 +164,62 @@ function getMatchedSearchCategories(
         normalizedSlug,
         normalizedPath,
         normalizedBreadcrumb,
-      ].join(" ");
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const exactNameMatch = normalizedName === normalizedQuery;
+      const exactSlugMatch = normalizedSlug === normalizedQuery;
+      const exactPathMatch = normalizedPath === normalizedQuery;
+
+      const nameStartsWith = normalizedName.startsWith(normalizedQuery);
+      const slugStartsWith = normalizedSlug.startsWith(normalizedQuery);
+
+      const nameIncludes = normalizedName.includes(normalizedQuery);
+      const slugIncludes = normalizedSlug.includes(normalizedQuery);
+      const pathIncludes = normalizedPath.includes(normalizedQuery);
+      const breadcrumbIncludes = normalizedBreadcrumb.includes(normalizedQuery);
+
+      const allWordsMatch = queryWords.every((word) =>
+        searchableText.includes(word)
+      );
+
+      const hasRealMatch =
+        exactNameMatch ||
+        exactSlugMatch ||
+        exactPathMatch ||
+        nameStartsWith ||
+        slugStartsWith ||
+        nameIncludes ||
+        slugIncludes ||
+        pathIncludes ||
+        breadcrumbIncludes ||
+        allWordsMatch;
+
+      if (!hasRealMatch) {
+        return {
+          ...category,
+          score: 0,
+        };
+      }
 
       let score = 0;
 
-      if (normalizedName === normalizedQuery) score += 100;
-      if (normalizedSlug === normalizedQuery) score += 95;
-      if (normalizedPath === normalizedQuery) score += 90;
+      if (exactNameMatch) score += 100;
+      if (exactSlugMatch) score += 95;
+      if (exactPathMatch) score += 90;
 
-      if (normalizedName.startsWith(normalizedQuery)) score += 70;
-      if (normalizedSlug.startsWith(normalizedQuery)) score += 65;
+      if (nameStartsWith) score += 70;
+      if (slugStartsWith) score += 65;
 
-      if (searchableText.includes(normalizedQuery)) score += 50;
+      if (nameIncludes) score += 55;
+      if (slugIncludes) score += 50;
+      if (pathIncludes) score += 45;
+      if (breadcrumbIncludes) score += 40;
 
-      if (queryWords.every((word) => searchableText.includes(word))) {
-        score += 30;
-      }
+      if (allWordsMatch) score += 30;
 
-      if (category.productCount > 0) score += 10;
+      if (category.productCount > 0) score += 5;
 
       return {
         ...category,
@@ -197,8 +239,106 @@ function getMatchedSearchCategories(
     .slice(0, 6);
 }
 
+
+function productMatchesSearchQuery(product: SearchProduct, query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+
+  if (!normalizedQuery || normalizedQuery.length < 2) return false;
+
+  const categoryPathRaw = product.categoryPath;
+  const categoryPath = Array.isArray(categoryPathRaw)
+    ? categoryPathRaw.join(" ")
+    : String(categoryPathRaw || "");
+
+  const searchableText = normalizeSearchText(
+    [
+      product.title,
+      product.name,
+      product.slug,
+      product.brand,
+      product.category,
+      categoryPath,
+      product.color,
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  if (!searchableText) return false;
+
+  const queryWords = normalizedQuery.split(" ").filter(Boolean);
+
+  return (
+    searchableText.includes(normalizedQuery) ||
+    queryWords.every((word) => searchableText.includes(word))
+  );
+}
+
+function readRecentSearches() {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(RECENT_SEARCH_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .slice(0, MAX_RECENT_SEARCHES);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentSearch(query: string) {
+  if (typeof window === "undefined") return [];
+
+  const cleanQuery = String(query || "").trim();
+
+  if (!cleanQuery) return readRecentSearches();
+
+  const previous = readRecentSearches();
+
+  const next = [
+    cleanQuery,
+    ...previous.filter(
+      (item) => item.toLowerCase() !== cleanQuery.toLowerCase()
+    ),
+  ].slice(0, MAX_RECENT_SEARCHES);
+
+  window.localStorage.setItem(RECENT_SEARCH_STORAGE_KEY, JSON.stringify(next));
+
+  return next;
+}
+
+function clearRecentSearches() {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.removeItem(RECENT_SEARCH_STORAGE_KEY);
+}
+
+function removeRecentSearch(query: string) {
+  if (typeof window === "undefined") return [];
+
+  const cleanQuery = String(query || "").trim();
+
+  const next = readRecentSearches().filter(
+    (item) => item.toLowerCase() !== cleanQuery.toLowerCase()
+  );
+
+  window.localStorage.setItem(RECENT_SEARCH_STORAGE_KEY, JSON.stringify(next));
+
+  return next;
+}
+
 export default function SiteHeader() {
   const { count: wishlistCount, refreshWishlistCount } = useWishlist();
+
+  const searchWrapRef = useRef<HTMLDivElement | null>(null);
+
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
   const [cartCount, setCartCount] = useState(0);
   const [showTopStrip, setShowTopStrip] = useState(true);
@@ -262,6 +402,33 @@ setCategoryTree(tree);
   }, [refreshWishlistCount]);
 
   useEffect(() => {
+  setRecentSearches(readRecentSearches());
+}, []);
+
+
+  useEffect(() => {
+  if (!searchOpen) return;
+
+  function handleClickOutside(event: MouseEvent | TouchEvent) {
+    const target = event.target as Node | null;
+
+    if (!target) return;
+
+    if (searchWrapRef.current?.contains(target)) return;
+
+    setSearchOpen(false);
+  }
+
+  document.addEventListener("mousedown", handleClickOutside);
+  document.addEventListener("touchstart", handleClickOutside);
+
+  return () => {
+    document.removeEventListener("mousedown", handleClickOutside);
+    document.removeEventListener("touchstart", handleClickOutside);
+  };
+}, [searchOpen]);
+
+  useEffect(() => {
     loadCartCount();
     loadCategoryTree();
 
@@ -295,9 +462,11 @@ setCategoryTree(tree);
         setSearchOpen(true);
 
         const response = await searchProducts(query);
-        const results = unwrapSearchResults(response);
+      const results = unwrapSearchResults(response).filter((product) =>
+  productMatchesSearchQuery(product, searchQuery)
+);
 
-        setSearchResults(results);
+setSearchResults(results);
       } catch (error: any) {
         console.error("Search failed:", error);
         setSearchResults([]);
@@ -365,6 +534,8 @@ setCategoryTree(tree);
   event.preventDefault();
 
   const query = searchQuery.trim();
+
+  setRecentSearches(saveRecentSearch(query));
 
   if (!query) return;
 
@@ -447,16 +618,17 @@ setCategoryTree(tree);
             </a>
           </div>
 
-          <form
-            onSubmit={handleSearchSubmit}
-            className="relative flex h-[58px] w-full max-w-[860px] border border-[#d8cfc2] bg-white"
-          >
+     <form
+  onSubmit={handleSearchSubmit}
+  className="relative flex h-[58px] w-full max-w-[860px] border border-[#d8cfc2] bg-white"
+>
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               onFocus={() => {
-                if (searchQuery.trim()) setSearchOpen(true);
-              }}
+  setRecentSearches(readRecentSearches());
+  setSearchOpen(true);
+}}
               placeholder="evening gowns, bridal, sizes..."
               className="h-full flex-1 bg-white px-6 text-[15px] text-[#15100c] outline-none placeholder:text-[#aaa39c]"
             />
@@ -489,6 +661,62 @@ setCategoryTree(tree);
                   </button>
                 </div>
 
+                {!searchQuery.trim() && recentSearches.length ? (
+  <div className="border-b border-[#eee8df]">
+    <div className="flex items-center justify-between px-5 pb-2 pt-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#8a8178]">
+        Recent Searches
+      </p>
+
+      <button
+        type="button"
+        onClick={() => {
+          clearRecentSearches();
+          setRecentSearches([]);
+        }}
+        className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#b98262] transition hover:text-[#15100c]"
+      >
+        Clear
+      </button>
+    </div>
+
+    <div className="grid">
+   {recentSearches.map((item) => (
+  <div
+    key={item}
+    className="flex items-center justify-between border-t border-[#f5efe7] transition hover:bg-[#fbf8f1]"
+  >
+    <button
+      type="button"
+      onClick={() => {
+        setSearchQuery(item);
+        setSearchOpen(true);
+      }}
+      className="min-w-0 flex-1 px-5 py-3 text-left"
+    >
+      <span className="block truncate text-[14px] font-semibold text-[#15100c]">
+        {item}
+      </span>
+    </button>
+
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        setRecentSearches(removeRecentSearch(item));
+      }}
+      className="mr-5 grid h-8 w-8 place-items-center text-[#8a8178] transition hover:text-[#15100c]"
+      aria-label={`Remove ${item} from recent searches`}
+      title="Remove"
+    >
+      <X className="h-4 w-4 stroke-[2]" />
+    </button>
+  </div>
+))}
+    </div>
+  </div>
+) : null}
+
                 {searchLoading ? (
                   <div className="flex items-center gap-3 px-5 py-5 text-sm text-[#6d6760]">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -503,7 +731,7 @@ setCategoryTree(tree);
                   </div>
                 ) : null}
 
-               {!searchLoading &&
+{!searchLoading &&
 !searchError &&
 !searchCategorySuggestions.length &&
 !searchResults.length ? (
@@ -528,6 +756,9 @@ setCategoryTree(tree);
           <a
             key={`search-category-${category.id}`}
             href={category.href}
+            onClick={() => {
+  setRecentSearches(saveRecentSearch(searchQuery));
+}}
             className="grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-4 border-t border-[#f5efe7] px-5 py-3 transition hover:bg-[#fbf8f1]"
           >
           <div className="h-[52px] w-[52px] overflow-hidden rounded-full bg-[#efe8de]">
@@ -584,6 +815,9 @@ setCategoryTree(tree);
                         <a
                           key={product.id || product.productId || title}
                           href={href}
+                           onClick={() => {
+    setRecentSearches(saveRecentSearch(searchQuery));
+  }}
                          className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-4 border-b border-[#f0ebe4] px-5 py-4 transition hover:bg-[#fbf8f1]"
                         >
                           <div className="h-16 w-16 overflow-hidden bg-[#eee8df]">
