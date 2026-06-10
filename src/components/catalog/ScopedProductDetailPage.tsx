@@ -25,6 +25,15 @@ import {
 
 import SiteHeader from "@/components/SiteHeader";
 import { addToCart } from "@/lib/api/cart.api";
+
+import {
+  addToWishlist,
+  getWishlist,
+  removeFromWishlist,
+  unwrapWishlistItems,
+} from "@/lib/api/wishlist.api";
+import { getSavedToken } from "@/lib/api/account.api";
+import { useToast } from "@/components/ui/AppToast";
 import {
   CatalogProduct,
   CatalogVariant,
@@ -49,6 +58,8 @@ type BreadcrumbItem = {
 };
 
 type ProductImage = {
+  embedUrl?: string;
+provider?: "direct" | "vimeo" | "youtube" | "external";
   id?: string;
   url: string;
   alt?: string;
@@ -113,8 +124,9 @@ type DetailProduct = {
   slug?: string;
   sku?: string;
   shortDescription?: string;
-  description?: string;
-  category?: string;
+description?: string;
+descriptionHtml?: string;
+category?: string;
   categoryId?: string;
 categoryName?: string;
 categorySlug?: string;
@@ -379,14 +391,31 @@ function formatMoney(value?: number | string, currency = "USD") {
 
 function stripHtml(value?: string) {
   return String(value || "")
+    .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 }
+
+function sanitizeProductHtml(value?: string) {
+  return String(value || "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/\son\w+="[^"]*"/gi, "")
+    .replace(/\son\w+='[^']*'/gi, "")
+    .replace(/href=["']javascript:[^"']*["']/gi, 'href="#"')
+    .replace(/src=["']javascript:[^"']*["']/gi, 'src="#"')
+    .trim();
+}
+
+
 
 function getRawProduct(response: any) {
   return (
@@ -466,6 +495,78 @@ function getUrlExtension(url?: string) {
   return String(lastPart.split(".").pop() || "").toLowerCase();
 }
 
+
+function getVideoProvider(url?: string) {
+  const text = String(url || "").trim().toLowerCase();
+
+  if (!text) return "external";
+
+  if (text.includes("vimeo.com")) return "vimeo";
+
+  if (
+    text.includes("youtube.com") ||
+    text.includes("youtu.be")
+  ) {
+    return "youtube";
+  }
+
+  const extension = getUrlExtension(text);
+
+  if (VIDEO_FORMATS.includes(extension)) return "direct";
+
+  return "external";
+}
+
+function getVimeoEmbedUrl(url?: string) {
+  const text = String(url || "").trim();
+
+  if (!text) return "";
+
+  const match = text.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+  const videoId = match?.[1];
+
+  if (!videoId) return "";
+
+  return `https://player.vimeo.com/video/${videoId}`;
+}
+
+function getYoutubeEmbedUrl(url?: string) {
+  const text = String(url || "").trim();
+
+  if (!text) return "";
+
+  let videoId = "";
+
+  const shortMatch = text.match(/youtu\.be\/([^?&/]+)/i);
+  const watchMatch = text.match(/[?&]v=([^?&/]+)/i);
+  const shortsMatch = text.match(/youtube\.com\/shorts\/([^?&/]+)/i);
+  const embedMatch = text.match(/youtube\.com\/embed\/([^?&/]+)/i);
+
+  videoId =
+    shortMatch?.[1] ||
+    watchMatch?.[1] ||
+    shortsMatch?.[1] ||
+    embedMatch?.[1] ||
+    "";
+
+  if (!videoId) return "";
+
+  return `https://www.youtube.com/embed/${videoId}`;
+}
+
+function getVideoEmbedUrl(url?: string) {
+  const provider = getVideoProvider(url);
+
+  if (provider === "vimeo") return getVimeoEmbedUrl(url);
+  if (provider === "youtube") return getYoutubeEmbedUrl(url);
+
+  return "";
+}
+
+function isEmbeddableVideo(url?: string) {
+  return Boolean(getVideoEmbedUrl(url));
+}
+
 function detectMediaType(item: any, url: string): "image" | "video" {
   const viewType = readFirst(item?.viewType, item?.type, item?.mediaType)
     .toLowerCase()
@@ -483,6 +584,12 @@ function detectMediaType(item: any, url: string): "image" | "video" {
 
   const extension = getUrlExtension(url);
   const lowerUrl = String(url || "").toLowerCase();
+
+    const provider = getVideoProvider(url);
+
+  if (provider === "vimeo" || provider === "youtube") {
+    return "video";
+  }
 
   if (
     viewType.includes("video") ||
@@ -518,15 +625,17 @@ function getImages(product: any): ProductImage[] {
         if (url) {
           const mediaType = detectMediaType({}, url);
 
-          result.push({
-            url,
-            alt: readFirst(product?.title, product?.name),
-            sortOrder: index,
-            isPrimary: index === 0,
-            viewType: mediaType,
-            format: getUrlExtension(url),
-            mediaType,
-          });
+        result.push({
+  url,
+  alt: readFirst(product?.title, product?.name),
+  sortOrder: index,
+  isPrimary: index === 0,
+  viewType: mediaType,
+  format: getUrlExtension(url),
+  mediaType,
+  provider: mediaType === "video" ? getVideoProvider(url) : undefined,
+  embedUrl: mediaType === "video" ? getVideoEmbedUrl(url) : "",
+});
         }
 
         return;
@@ -562,6 +671,8 @@ function getImages(product: any): ProductImage[] {
           format: readFirst(item?.format) || getUrlExtension(url),
           mimeType: readFirst(item?.mimeType, item?.contentType),
           mediaType,
+          provider: mediaType === "video" ? getVideoProvider(url) : undefined,
+embedUrl: mediaType === "video" ? getVideoEmbedUrl(url) : "",
         });
       }
     });
@@ -603,6 +714,9 @@ function getImages(product: any): ProductImage[] {
       viewType: mediaType,
       format: getUrlExtension(fallbackImage),
       mediaType,
+
+      provider: mediaType === "video" ? getVideoProvider(fallbackImage) : undefined,
+embedUrl: mediaType === "video" ? getVideoEmbedUrl(fallbackImage) : "",
     },
   ];
 }
@@ -772,18 +886,19 @@ function getFabricOptions(product: any): FabricOption[] {
 }
 
 function getDeliveryOptions(product: any): DeliveryOption[] {
-  if (Array.isArray(product?.deliveryOptions) && product.deliveryOptions.length) {
-    return product.deliveryOptions
-      .map((item: any) => ({
-        id: readFirst(item?.id, item?.value, item?.label).toUpperCase(),
+    if (Array.isArray(product?.deliveryOptions) && product.deliveryOptions.length) {
+      return product.deliveryOptions        .map((item: any) => ({  
+        id: readFirst(item?.id, item?.label),
         label: readFirst(item?.label, item?.name, item?.id),
-        time: readFirst(item?.time, item?.estimatedArrivalText),
+        time: readFirst(item?.time, item?.estimatedTime),
         extraPrice: item?.extraPrice,
         available: typeof item?.available === "boolean" ? item.available : true,
-        estimatedArrivalText: readFirst(item?.estimatedArrivalText, item?.time),
-      }))
-      .filter((item: DeliveryOption) => item.id && item.label);
-  }
+        estimatedArrivalText: readFirst(item?.estimatedArrivalText, item?.estimatedArrival, item?.arrivalText),
+      }))        .filter((item: DeliveryOption) => item.label);
+    }
+    
+
+
 
   return [
     {
@@ -825,9 +940,16 @@ function getFeatureBadges(product: any) {
       const label = readFirst(item);
 
       if (label) {
-        badges.push({ label });
+      badges.push({ label });
+
+
+
+     
+
       }
     });
+
+  
   }
 
   const unique = new Map<string, { label: string; icon?: string }>();
@@ -866,12 +988,16 @@ function mapBackendProduct(rawProduct: any): DetailProduct | null {
     name: readFirst(rawProduct?.name),
     slug: readFirst(rawProduct?.slug),
     sku: readFirst(rawProduct?.sku),
-    shortDescription: readFirst(rawProduct?.shortDescription),
-    description:
-      stripHtml(rawProduct?.descriptionHtml) ||
-      stripHtml(rawProduct?.description) ||
-      readFirst(rawProduct?.shortDescription),
-    category: readFirst(
+   shortDescription: readFirst(rawProduct?.shortDescription),
+description:
+  stripHtml(rawProduct?.descriptionHtml) ||
+  stripHtml(rawProduct?.description) ||
+  readFirst(rawProduct?.shortDescription),
+descriptionHtml: sanitizeProductHtml(
+  readFirst(rawProduct?.descriptionHtml, rawProduct?.description)
+  
+),
+category: readFirst(
   rawProduct?.categoryName,
   rawProduct?.category,
   rawProduct?.productType,
@@ -1465,6 +1591,17 @@ function getCategoryBreadcrumbHref(
   return currentCategoryPath ? `/${currentCategoryPath}` : "/products";
 }
 
+
+function notifyWishlistChanged() {
+  if (typeof window === "undefined") return;
+
+  window.dispatchEvent(new Event("wishlist-updated"));
+  window.dispatchEvent(new Event("wishlistUpdated"));
+  window.dispatchEvent(new Event("wishlist:updated"));
+  window.dispatchEvent(new Event("wishlist-count-updated"));
+  window.dispatchEvent(new Event("wishlistCountUpdated"));
+}
+
 export function ScopedProductDetailPage({
   categoryPath,
   productId,
@@ -1473,6 +1610,8 @@ export function ScopedProductDetailPage({
   productId: string;
 }) {
   const router = useRouter();
+
+  const toast = useToast();
 
   const cleanCategoryPath = String(categoryPath || "")
     .replace(/^\/+|\/+$/g, "")
@@ -1510,6 +1649,9 @@ export function ScopedProductDetailPage({
   const [cartLoading, setCartLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  const [wishlistLoading, setWishlistLoading] = useState(false);
+const [isWishlisted, setIsWishlisted] = useState(false);
 
   function handleImageZoomMove(event: React.MouseEvent<HTMLDivElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -1723,9 +1865,23 @@ if (hydratedSimilarColorProducts.length) {
 
   const productDetailRows = product ? buildProductDetailRows(product) : [];
 
+  useEffect(() => {
+    if (!product) return;
+
+    console.log("\n========= PRODUCT DETAILS SECTION =========");
+    console.log("descriptionHtml:", product.descriptionHtml);
+    console.log("description:", product.description);
+    console.log("shortDescription:", product.shortDescription);
+
+    console.log("productDetailRows:", productDetailRows);
+    console.log("notes:", product.productDetails?.notes);
+    console.log("========= END PRODUCT DETAILS SECTION =========\n");
+  }, [product, productDetailRows]);
+
 const seeMoreFromItems = product
   ? getProductSeeMoreFrom(product.raw || {})
   : [];
+
 
 const breadcrumbItems: BreadcrumbItem[] = product
   ? getProductBreadcrumbItems(product, categoryTree)
@@ -1735,6 +1891,126 @@ const breadcrumbItems: BreadcrumbItem[] = product
   product?.images.find((item) => item.url === selectedImage) ||
   product?.images[0] ||
   null;
+
+  useEffect(() => {
+  let mounted = true;
+
+  async function checkProductWishlistStatus() {
+    if (!product?.productId) {
+      setIsWishlisted(false);
+      return;
+    }
+
+    const token = getSavedToken();
+
+    if (!token) {
+      setIsWishlisted(false);
+      return;
+    }
+
+    try {
+      const response = await getWishlist({
+        page: 1,
+        limit: 100,
+      });
+
+      const items = unwrapWishlistItems(response);
+
+      const exists = items.some((item: any) => {
+        const wishlistProduct = item?.product || item?.catalogProduct || {};
+        const wishlistProductId = String(
+          item?.productId ||
+            wishlistProduct?.productId ||
+            wishlistProduct?.id ||
+            wishlistProduct?.catalogProductId ||
+            "",
+        ).trim();
+
+        return wishlistProductId === product.productId;
+      });
+
+      if (!mounted) return;
+
+      setIsWishlisted(exists);
+    } catch (error) {
+      console.error("Product wishlist status check failed:", error);
+
+      if (!mounted) return;
+
+      setIsWishlisted(false);
+    }
+  }
+
+  checkProductWishlistStatus();
+
+  return () => {
+    mounted = false;
+  };
+}, [product?.productId]);
+
+async function handleWishlistToggle() {
+  if (!product?.productId) {
+    setError("Product ID missing from backend.");
+    return;
+  }
+
+  const token = getSavedToken();
+
+  if (!token) {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(
+        "redirectAfterLogin",
+        window.location.pathname + window.location.search,
+      );
+    }
+
+    toast.error("Login required", "Please login first to save this product.");
+    router.push("/account");
+    return;
+  }
+
+  try {
+    setWishlistLoading(true);
+    setError("");
+
+    if (isWishlisted) {
+      await removeFromWishlist(product.productId);
+
+      setIsWishlisted(false);
+      notifyWishlistChanged();
+
+      toast.success("Removed from wishlist", "Product removed successfully.");
+      return;
+    }
+
+    await addToWishlist({
+      productId: product.productId,
+      variantId: selectedVariantId || undefined,
+    } as any);
+
+    setIsWishlisted(true);
+    notifyWishlistChanged();
+
+    toast.success("Added to wishlist", "Product saved successfully.");
+  } catch (error: any) {
+    console.error("Product detail wishlist toggle failed:", error);
+
+    const message = error?.message || "Wishlist update failed.";
+
+    if (
+      message.toLowerCase().includes("unauthorized") ||
+      message.toLowerCase().includes("401")
+    ) {
+      toast.error("Login required", "Please login again to save this product.");
+      router.push("/account");
+      return;
+    }
+
+    toast.error("Wishlist failed", message);
+  } finally {
+    setWishlistLoading(false);
+  }
+}
   
 
   async function handleAddToBag() {
@@ -1942,15 +2218,25 @@ const breadcrumbItems: BreadcrumbItem[] = product
                       : "border-[#ddd5c9] hover:border-[#15100c]",
                   ].join(" ")}
                 >
-                {image.mediaType === "video" ? (
+ {image.mediaType === "video" ? (
   <div className="relative h-full w-full bg-black">
-    <video
-      src={image.url}
-      muted
-      playsInline
-      preload="metadata"
-      className="h-full w-full object-cover object-center"
-    />
+    {image.provider === "direct" ? (
+      <video
+        src={image.url}
+        muted
+        playsInline
+        preload="metadata"
+        className="h-full w-full object-cover object-center"
+      />
+    ) : (
+      <div className="flex h-full w-full items-center justify-center bg-[#15100c] px-2 text-center text-[8px] font-semibold uppercase tracking-[0.12em] text-white">
+        {image.provider === "vimeo"
+          ? "Vimeo"
+          : image.provider === "youtube"
+            ? "YouTube"
+            : "Video"}
+      </div>
+    )}
 
     <span className="absolute inset-0 grid place-items-center bg-black/25 text-[9px] font-semibold uppercase tracking-[0.14em] text-white">
       Video
@@ -1986,17 +2272,42 @@ const breadcrumbItems: BreadcrumbItem[] = product
               {selectedImage ? (
                 <>
                   <div className="relative h-full w-full overflow-hidden bg-[#f3f0eb]">
-                   {selectedMedia?.mediaType === "video" ? (
-  <video
-    src={selectedMedia.url}
-    controls
-    autoPlay
-    muted
-    loop
-    playsInline
-    preload="metadata"
-    className="h-full w-full bg-black object-contain object-center"
-  />
+{selectedMedia?.mediaType === "video" ? (
+  selectedMedia.provider === "direct" ? (
+    <video
+      src={selectedMedia.url}
+      controls
+      autoPlay
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      className="h-full w-full bg-black object-contain object-center"
+    />
+  ) : selectedMedia.embedUrl ? (
+    <iframe
+      src={selectedMedia.embedUrl}
+      title={selectedMedia.alt || product.title || "Product video"}
+      allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+      allowFullScreen
+      className="h-full w-full bg-black"
+    />
+  ) : (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-[#15100c] px-8 text-center text-white">
+      <p className="text-[12px] font-semibold uppercase tracking-[0.24em]">
+        Video preview unavailable
+      </p>
+
+      <a
+        href={selectedMedia.url}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex h-11 items-center justify-center rounded-full border border-white/30 px-5 text-[10px] font-semibold uppercase tracking-[0.22em] transition hover:bg-white hover:text-[#15100c]"
+      >
+        Open Video
+      </a>
+    </div>
+  )
 ) : (
   <img
     src={selectedImage}
@@ -2041,12 +2352,28 @@ const breadcrumbItems: BreadcrumbItem[] = product
   </>
 ) : null}
 
-                    <button
-                      type="button"
-                      className="absolute right-4 top-4 z-30 grid h-10 w-10 place-items-center rounded-full bg-white/95 text-[#15100c] shadow-[0_10px_26px_rgba(23,17,13,0.14)] transition hover:scale-110 hover:bg-[#15100c] hover:text-white"
-                    >
-                      <Heart className="h-5 w-5 stroke-[1.5]" />
-                    </button>
+                   <button
+  type="button"
+  onClick={handleWishlistToggle}
+  disabled={wishlistLoading}
+  aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+  title={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+  className={[
+    "absolute right-4 top-4 z-30 grid h-10 w-10 place-items-center rounded-full bg-white/95 text-[#15100c] shadow-[0_10px_26px_rgba(23,17,13,0.14)] transition hover:scale-110 hover:bg-[#15100c] hover:text-white disabled:cursor-not-allowed disabled:opacity-70",
+    isWishlisted ? "text-red-600" : "",
+  ].join(" ")}
+>
+  {wishlistLoading ? (
+    <Loader2 className="h-5 w-5 animate-spin" />
+  ) : (
+    <Heart
+      className={[
+        "h-5 w-5 stroke-[1.5]",
+        isWishlisted ? "fill-current" : "fill-transparent",
+      ].join(" ")}
+    />
+  )}
+</button>
                   </div>
 
                 {selectedMedia?.mediaType !== "video" && typeof document !== "undefined"
@@ -2573,11 +2900,18 @@ const breadcrumbItems: BreadcrumbItem[] = product
                 </div>
 
                 <div>
-                  <h4 className="mb-2 text-[14px] font-semibold">Description</h4>
+                 <h4 className="mb-2 text-[14px] font-semibold">Description</h4>
 
-                  <p className="text-[14px] leading-7 text-[#5f5a54]">
-                    {product.description || product.shortDescription || "—"}
-                  </p>
+{product.descriptionHtml ? (
+  <div
+    className="product-description-html text-[14px] leading-7 text-[#5f5a54]"
+    dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
+  />
+) : (
+  <p className="text-[14px] leading-7 text-[#5f5a54]">
+    {product.description || product.shortDescription || "—"}
+  </p>
+)}
 
                   {productDetailRows.length ? (
                     <div className="mt-6 grid gap-x-10 gap-y-3 text-[14px] text-[#5f5a54] md:grid-cols-2">
@@ -2595,7 +2929,12 @@ const breadcrumbItems: BreadcrumbItem[] = product
                     <div className="mt-5 space-y-1 text-[14px] italic text-[#5f5a54]">
                       {product.productDetails.notes.map((note: string) => (
                         <p key={note}>*{note}</p>
+
+                      
                       ))}
+
+                      
+
                     </div>
                   ) : null}
                 </div>
@@ -3001,6 +3340,55 @@ function ProductDetailAnimationStyles() {
           transform: translateY(0) scale(1);
         }
       }
+
+      .product-description-html h2 {
+  margin-top: 22px;
+  margin-bottom: 10px;
+  font-size: 20px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: #15100c;
+}
+
+.product-description-html h2:first-child {
+  margin-top: 0;
+}
+
+.product-description-html h3 {
+  margin-top: 18px;
+  margin-bottom: 8px;
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: #15100c;
+}
+
+.product-description-html p {
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #5f5a54;
+}
+
+.product-description-html ul {
+  margin: 10px 0 16px 20px;
+  list-style: disc;
+}
+
+.product-description-html li {
+  margin-bottom: 6px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #5f5a54;
+}
+
+.product-description-html a {
+  color: #15100c;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 
       .similar-products-scroll {
         scrollbar-width: none;

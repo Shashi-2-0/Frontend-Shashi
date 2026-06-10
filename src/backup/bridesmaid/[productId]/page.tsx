@@ -856,9 +856,13 @@ function mapBackendProduct(rawProduct: any): DetailProduct | null {
     sku: readFirst(rawProduct?.sku),
     shortDescription: readFirst(rawProduct?.shortDescription),
     description:
-      stripHtml(rawProduct?.descriptionHtml) ||
-      stripHtml(rawProduct?.description) ||
+      (rawProduct?.descriptionHtml) ||
+      (rawProduct?.description) ||
       readFirst(rawProduct?.shortDescription),
+
+
+
+
     category: readFirst(
   rawProduct?.categoryName,
   rawProduct?.category,
@@ -2362,29 +2366,39 @@ if (hydratedSimilarColorProducts.length) {
                 </div>
 
                 <div>
-                  <h4 className="mb-2 text-[14px] font-semibold">Description</h4>
+  <h4 className="mb-2 text-[14px] font-semibold">Description</h4>
 
-                  <p className="text-[14px] leading-7 text-[#5f5a54]">
-                    {product.description || product.shortDescription || "—"}
-                  </p>
+  {product.description || product.shortDescription ? (
+    <div
+      className="product-description-html text-[14px] leading-7 text-[#5f5a54]"
+      dangerouslySetInnerHTML={{
+        __html: product.description || product.shortDescription || "",
+      }}
+    />
+  ) : (
+    <p className="text-[14px] leading-7 text-[#5f5a54]">—</p>
+  )}
 
-                  {productDetailRows.length ? (
-                    <div className="mt-6 grid gap-x-10 gap-y-3 text-[14px] text-[#5f5a54] md:grid-cols-2">
-                      {productDetailRows.map((row) => (
-                        <p key={row.label}>
-                          <b className="text-[#15100c]">{row.label} :</b>{" "}
-                          {valueToText(row.value)}
-                        </p>
-                      ))}
-                    </div>
+  {productDetailRows.length ? (
+    <div className="mt-6 grid gap-x-10 gap-y-3 text-[14px] text-[#5f5a54] md:grid-cols-2">
+      {productDetailRows.map((row) => (
+        <p key={row.label}>
+          <b className="text-[#15100c]">{row.label} :</b>{" "}
+          {valueToText(row.value)}
+        </p>
+      ))}
+    </div>
                   ) : null}
 
-                  {Array.isArray(product.productDetails?.notes) &&
-                  product.productDetails.notes.length ? (
-                    <div className="mt-5 space-y-1 text-[14px] italic text-[#5f5a54]">
-                      {product.productDetails.notes.map((note: string) => (
-                        <p key={note}>*{note}</p>
-                      ))}
+                 {Array.isArray(product.productDetails?.notes) &&
+  product.productDetails.notes.length ? (
+    <div className="mt-5 space-y-1 text-[20px] italic text-[#5f5a54]">
+      {product.productDetails.notes.map((note: string, index: number) => (
+        <p
+          key={index}
+          dangerouslySetInnerHTML={{ __html: `*${note}` }}
+        />
+      ))}
                     </div>
                   ) : null}
                 </div>

@@ -296,6 +296,7 @@ export function buildCategoryHrefFromCollectionValue(
 
   if (category) {
     return getCategoryHref(category);
+    return getCategoryHref(category);
   }
 
   return "";

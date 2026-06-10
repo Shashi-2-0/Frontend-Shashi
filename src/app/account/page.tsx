@@ -1692,20 +1692,20 @@ function ProductCard({
           )}
         </Link>
 
-        <button
-          type="button"
-          onClick={() => onRemove(item)}
-          disabled={removing}
-          className="absolute right-4 top-4 text-neutral-950 transition hover:scale-110 disabled:cursor-not-allowed disabled:opacity-60"
-          aria-label="Remove from wishlist"
-          title="Remove from wishlist"
-        >
-          {removing ? (
-            <Loader2 className="h-6 w-6 animate-spin" />
-          ) : (
-            <Heart className="h-7 w-7 fill-current stroke-[1.8]" />
-          )}
-        </button>
+      <button
+  type="button"
+  onClick={() => onRemove(item)}
+  disabled={removing}
+  className="absolute right-5 top-5 z-20 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-[#dc2626] shadow-sm transition hover:scale-105 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+  aria-label="Remove from wishlist"
+  title="Remove from wishlist"
+>
+  {removing ? (
+    <Loader2 className="h-5 w-5 animate-spin text-[#dc2626]" />
+  ) : (
+    <Heart className="h-7 w-7 fill-[#dc2626] text-[#dc2626] stroke-[#dc2626] stroke-[1.8]" />
+  )}
+</button>
       </div>
 
       <div className="pt-4">

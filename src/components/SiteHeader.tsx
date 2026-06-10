@@ -398,8 +398,28 @@ setCategoryTree(tree);
   }
 
   useEffect(() => {
+  refreshWishlistCount();
+
+  function handleWishlistUpdated() {
     refreshWishlistCount();
-  }, [refreshWishlistCount]);
+  }
+
+  window.addEventListener("wishlist-updated", handleWishlistUpdated);
+  window.addEventListener("wishlistUpdated", handleWishlistUpdated);
+  window.addEventListener("wishlist:updated", handleWishlistUpdated);
+  window.addEventListener("wishlist-count-updated", handleWishlistUpdated);
+  window.addEventListener("wishlistCountUpdated", handleWishlistUpdated);
+  window.addEventListener("focus", handleWishlistUpdated);
+
+  return () => {
+    window.removeEventListener("wishlist-updated", handleWishlistUpdated);
+    window.removeEventListener("wishlistUpdated", handleWishlistUpdated);
+    window.removeEventListener("wishlist:updated", handleWishlistUpdated);
+    window.removeEventListener("wishlist-count-updated", handleWishlistUpdated);
+    window.removeEventListener("wishlistCountUpdated", handleWishlistUpdated);
+    window.removeEventListener("focus", handleWishlistUpdated);
+  };
+}, [refreshWishlistCount]);
 
   useEffect(() => {
   setRecentSearches(readRecentSearches());
