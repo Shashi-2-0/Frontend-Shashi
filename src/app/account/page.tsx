@@ -22,6 +22,8 @@ import {
   UserRound,
   Users,
   XCircle,
+  Eye,
+EyeOff,
 } from "lucide-react";
 
 import {
@@ -264,6 +266,8 @@ const sections: Array<{
 export default function AccountPage() {
   const toast = useToast();
 
+
+
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -278,6 +282,9 @@ export default function AccountPage() {
     phone: "",
     password: "",
   });
+
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [forgotForm, setForgotForm] = useState({ email: "" });
 
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -664,6 +671,10 @@ export default function AccountPage() {
             handleLogin={handleLogin}
             handleSignup={handleSignup}
             handleForgotPassword={handleForgotPassword}
+            showLoginPassword={showLoginPassword}
+setShowLoginPassword={setShowLoginPassword}
+showSignupPassword={showSignupPassword}
+setShowSignupPassword={setShowSignupPassword}
           />
         ) : (
           <>
@@ -827,6 +838,10 @@ function AuthCard({
   setSignupForm,
   forgotForm,
   setForgotForm,
+  showLoginPassword,
+  setShowLoginPassword,
+  showSignupPassword,
+  setShowSignupPassword,
   handleLogin,
   handleSignup,
   handleForgotPassword,
@@ -851,6 +866,11 @@ function AuthCard({
   >;
   forgotForm: { email: string };
   setForgotForm: React.Dispatch<React.SetStateAction<{ email: string }>>;
+  
+  showLoginPassword: boolean;
+setShowLoginPassword: React.Dispatch<React.SetStateAction<boolean>>;
+showSignupPassword: boolean;
+setShowSignupPassword: React.Dispatch<React.SetStateAction<boolean>>;
   handleLogin: (e: React.FormEvent<HTMLFormElement>) => void;
   handleSignup: (e: React.FormEvent<HTMLFormElement>) => void;
   handleForgotPassword: (e: React.FormEvent<HTMLFormElement>) => void;
@@ -922,14 +942,17 @@ function AuthCard({
                 setLoginForm((prev) => ({ ...prev, email: value }))
               }
             />
-            <AuthInput
-              label="Password"
-              type="password"
-              value={loginForm.password}
-              onChange={(value) =>
-                setLoginForm((prev) => ({ ...prev, password: value }))
-              }
-            />
+           <AuthInput
+  label="Password"
+  type={showLoginPassword ? "text" : "password"}
+  value={loginForm.password}
+  onChange={(value) =>
+    setLoginForm((prev) => ({ ...prev, password: value }))
+  }
+  isPassword
+  showPassword={showLoginPassword}
+  onTogglePassword={() => setShowLoginPassword((value) => !value)}
+/>
 
             <div className="-mt-1 flex justify-end">
   <button
@@ -978,14 +1001,17 @@ function AuthCard({
                 setSignupForm((prev) => ({ ...prev, phone: value }))
               }
             />
-            <AuthInput
-              label="Password"
-              type="password"
-              value={signupForm.password}
-              onChange={(value) =>
-                setSignupForm((prev) => ({ ...prev, password: value }))
-              }
-            />
+           <AuthInput
+  label="Password"
+  type={showSignupPassword ? "text" : "password"}
+  value={signupForm.password}
+  onChange={(value) =>
+    setSignupForm((prev) => ({ ...prev, password: value }))
+  }
+  isPassword
+  showPassword={showSignupPassword}
+  onTogglePassword={() => setShowSignupPassword((value) => !value)}
+/>
 
             <button
               type="submit"
@@ -1033,23 +1059,50 @@ function AuthInput({
   value,
   onChange,
   type = "text",
+  isPassword = false,
+  showPassword = false,
+  onTogglePassword,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
+  isPassword?: boolean;
+  showPassword?: boolean;
+  onTogglePassword?: () => void;
 }) {
   return (
     <label className="grid gap-2">
       <span className="text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">
         {label}
       </span>
-      <input
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-13 rounded-2xl border border-neutral-200 bg-[#fbfaf6] px-4 outline-none focus:border-neutral-950"
-      />
+
+      <span className="relative block">
+        <input
+          type={type}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={[
+            "h-13 w-full rounded-2xl border border-neutral-200 bg-[#fbfaf6] px-4 outline-none focus:border-neutral-950",
+            isPassword ? "pr-12" : "",
+          ].join(" ")}
+        />
+
+        {isPassword ? (
+          <button
+            type="button"
+            onClick={onTogglePassword}
+            className="absolute right-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full text-neutral-500 transition hover:bg-[#eee8df] hover:text-neutral-950"
+            aria-label={showPassword ? "Hide password" : "Show password"}
+          >
+            {showPassword ? (
+              <EyeOff className="h-5 w-5" />
+            ) : (
+              <Eye className="h-5 w-5" />
+            )}
+          </button>
+        ) : null}
+      </span>
     </label>
   );
 }

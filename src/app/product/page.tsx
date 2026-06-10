@@ -208,7 +208,7 @@ export default function ProductPage() {
 
   return (
     <main className="min-h-screen bg-[#fbfaf6] text-neutral-950">
-      <PromoBar />
+      {/* <PromoBar /> */}
       <Header />
 
       <section className="mx-auto max-w-[1500px] px-4 py-7 lg:px-8">

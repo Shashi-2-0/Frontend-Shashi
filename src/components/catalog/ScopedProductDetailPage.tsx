@@ -1654,29 +1654,38 @@ export function ScopedProductDetailPage({
 const [isWishlisted, setIsWishlisted] = useState(false);
 
   function handleImageZoomMove(event: React.MouseEvent<HTMLDivElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
+  const target = event.target as HTMLElement | null;
 
-    const x = ((event.clientX - rect.left) / rect.width) * 100;
-    const y = ((event.clientY - rect.top) / rect.height) * 100;
-
-    const gap = 22;
-    const panelWidth = rect.width;
-    const panelHeight = rect.height;
-    const panelLeft = rect.right + gap;
-    const panelTop = rect.top;
-
-    setZoomPosition({
-      x: Math.max(0, Math.min(100, x)),
-      y: Math.max(0, Math.min(100, y)),
-    });
-
-    setZoomPanelStyle({
-      left: panelLeft,
-      top: panelTop,
-      width: panelWidth,
-      height: panelHeight,
-    });
+  if (target?.closest("[data-no-zoom='true']")) {
+    setZoomVisible(false);
+    return;
   }
+
+  const rect = event.currentTarget.getBoundingClientRect();
+
+  const x = ((event.clientX - rect.left) / rect.width) * 100;
+  const y = ((event.clientY - rect.top) / rect.height) * 100;
+
+  const gap = 22;
+  const panelWidth = rect.width;
+  const panelHeight = rect.height;
+  const panelLeft = rect.right + gap;
+  const panelTop = rect.top;
+
+  setZoomPosition({
+    x: Math.max(0, Math.min(100, x)),
+    y: Math.max(0, Math.min(100, y)),
+  });
+
+  setZoomPanelStyle({
+    left: panelLeft,
+    top: panelTop,
+    width: panelWidth,
+    height: panelHeight,
+  });
+
+  setZoomVisible(true);
+}
 
   useEffect(() => {
     let mounted = true;
@@ -2258,16 +2267,23 @@ async function handleWishlistToggle() {
     "group relative flex h-[620px] items-center justify-center overflow-visible bg-transparent",
     selectedMedia?.mediaType === "video" ? "cursor-default" : "cursor-crosshair",
   ].join(" ")}
-  onMouseEnter={(event) => {
-    if (selectedMedia?.mediaType === "video") return;
-    setZoomVisible(true);
-    handleImageZoomMove(event);
-  }}
-  onMouseLeave={() => setZoomVisible(false)}
-  onMouseMove={(event) => {
-    if (selectedMedia?.mediaType === "video") return;
-    handleImageZoomMove(event);
-  }}
+ onMouseEnter={(event) => {
+  if (selectedMedia?.mediaType === "video") return;
+
+  const target = event.target as HTMLElement | null;
+
+  if (target?.closest("[data-no-zoom='true']")) {
+    setZoomVisible(false);
+    return;
+  }
+
+  handleImageZoomMove(event);
+}}
+onMouseLeave={() => setZoomVisible(false)}
+onMouseMove={(event) => {
+  if (selectedMedia?.mediaType === "video") return;
+  handleImageZoomMove(event);
+}}
 >
               {selectedImage ? (
                 <>
@@ -2352,9 +2368,22 @@ async function handleWishlistToggle() {
   </>
 ) : null}
 
-                   <button
+  <button
   type="button"
-  onClick={handleWishlistToggle}
+  data-no-zoom="true"
+  onClick={(event) => {
+    event.stopPropagation();
+    setZoomVisible(false);
+    handleWishlistToggle();
+  }}
+  onMouseEnter={(event) => {
+    event.stopPropagation();
+    setZoomVisible(false);
+  }}
+  onMouseMove={(event) => {
+    event.stopPropagation();
+    setZoomVisible(false);
+  }}
   disabled={wishlistLoading}
   aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
   title={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}

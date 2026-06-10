@@ -322,14 +322,14 @@ const data = responseData?.value || responseData;
         ) : null}
       </div>
 
-      {footer.promoTab?.enabled && footer.promoTab.text ? (
+      {/* {footer.promoTab?.enabled && footer.promoTab.text ? (
         <a
           href={normalizeUrl(footer.promoTab.url)}
           className="fixed right-0 top-1/2 z-[999] -translate-y-1/2 bg-[#15100c] px-3 py-5 text-center text-[13px] font-bold uppercase tracking-[0.12em] text-white [writing-mode:vertical-rl] hover:bg-[#b98262]"
         >
           {footer.promoTab.text}
         </a>
-      ) : null}
+      ) : null} */}
 
     {(footer as any).floatingButtons?.enabled ? <FloatingFooterButtons /> : null}
     </footer>
