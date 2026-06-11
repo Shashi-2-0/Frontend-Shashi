@@ -67,15 +67,18 @@ export async function apiRequest<T>(
       data,
     });
 
-    throw new Error(
-      typeof data === "string"
-        ? data
-        : data?.message ||
-            data?.error ||
-            data?.errors?.[0]?.message ||
-            JSON.stringify(data) ||
-            `API failed with ${response.status}`
-    );
+const errorMessage =
+  typeof data === "string"
+    ? data
+    : data?.message ||
+      data?.error ||
+      data?.errors?.[0]?.message ||
+      "";
+
+throw new Error(
+  errorMessage ||
+    `API failed: ${options.method || "GET"} ${endpoint} returned ${response.status}`
+);
   }
 
   return data as T;

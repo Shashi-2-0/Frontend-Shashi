@@ -21,6 +21,9 @@ import {
   Star,
   Truck,
   XCircle,
+
+  Link2,
+Mail,
 } from "lucide-react";
 
 import SiteHeader from "@/components/SiteHeader";
@@ -1653,6 +1656,8 @@ export function ScopedProductDetailPage({
   const [wishlistLoading, setWishlistLoading] = useState(false);
 const [isWishlisted, setIsWishlisted] = useState(false);
 
+const [shareCopied, setShareCopied] = useState(false);
+
   function handleImageZoomMove(event: React.MouseEvent<HTMLDivElement>) {
   const target = event.target as HTMLElement | null;
 
@@ -1703,12 +1708,32 @@ if (!cleanProductId) {
   throw new Error("Product slug/id missing in product URL.");
 }
 
-const response = await apiRequest<any>(
-  `/catalog/slug/${encodeURIComponent(cleanProductId)}`,
-  {
-    method: "GET",
-  },
-);
+let response: any = null;
+
+try {
+  response = await apiRequest<any>(
+    `/catalog/slug/${encodeURIComponent(cleanProductId)}`,
+    {
+      method: "GET",
+    },
+  );
+} catch (slugError: any) {
+  const isUuid =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      cleanProductId,
+    );
+
+  if (!isUuid) {
+    throw slugError;
+  }
+
+  response = await apiRequest<any>(
+    `/catalog/${encodeURIComponent(cleanProductId)}`,
+    {
+      method: "GET",
+    },
+  );
+}
         const rawProduct = getRawProduct(response);
 
         if (!isPublicVisibleProduct(rawProduct)) {
@@ -1901,6 +1926,21 @@ const breadcrumbItems: BreadcrumbItem[] = product
   product?.images[0] ||
   null;
 
+  const productShareUrl =
+  typeof window !== "undefined" ? window.location.href : "";
+
+const encodedProductShareUrl = encodeURIComponent(productShareUrl);
+const encodedProductTitle = encodeURIComponent(product?.title || "");
+const encodedProductImage = encodeURIComponent(selectedImage || "");
+
+const emailShareHref = `mailto:?subject=${encodedProductTitle}&body=${encodedProductTitle}%0A${encodedProductShareUrl}`;
+
+const pinterestShareHref = `https://www.pinterest.com/pin/create/button/?url=${encodedProductShareUrl}&media=${encodedProductImage}&description=${encodedProductTitle}`;
+
+const xShareHref = `https://twitter.com/intent/tweet?url=${encodedProductShareUrl}&text=${encodedProductTitle}`;
+
+const facebookShareHref = `https://www.facebook.com/sharer/sharer.php?u=${encodedProductShareUrl}`;
+
   useEffect(() => {
   let mounted = true;
 
@@ -2018,6 +2058,25 @@ async function handleWishlistToggle() {
     toast.error("Wishlist failed", message);
   } finally {
     setWishlistLoading(false);
+  }
+}
+
+async function handleCopyProductLink() {
+  if (typeof window === "undefined") return;
+
+  const productUrl = window.location.href;
+
+  try {
+    await navigator.clipboard.writeText(productUrl);
+    setShareCopied(true);
+    toast.success("Link copied", "Product link copied successfully.");
+
+    window.setTimeout(() => {
+      setShareCopied(false);
+    }, 1800);
+  } catch (error) {
+    console.error("Product link copy failed:", error);
+    toast.error("Copy failed", "Product link copy nahi ho paya.");
   }
 }
   
@@ -2439,6 +2498,60 @@ onMouseMove={(event) => {
                   No image from backend
                 </div>
               )}
+                      </div>
+
+            <div className="flex items-center justify-center gap-8 pt-4 lg:col-start-2">
+              <button
+                type="button"
+                onClick={handleCopyProductLink}
+                className="grid h-10 w-10 place-items-center text-[#2c2925] transition hover:-translate-y-0.5 hover:text-[#b98262]"
+                aria-label="Copy product link"
+                title={shareCopied ? "Copied" : "Copy link"}
+              >
+                <Link2 className="h-7 w-7 stroke-[2]" />
+              </button>
+
+              <a
+                href={emailShareHref}
+                className="grid h-10 w-10 place-items-center text-[#2c2925] transition hover:-translate-y-0.5 hover:text-[#b98262]"
+                aria-label="Share by email"
+                title="Share by email"
+              >
+                <Mail className="h-7 w-7 stroke-[2]" />
+              </a>
+
+              <a
+                href={pinterestShareHref}
+                target="_blank"
+                rel="noreferrer"
+                className="grid h-10 w-10 place-items-center font-serif text-[42px] font-bold leading-none text-[#2c2925] transition hover:-translate-y-0.5 hover:text-[#b98262]"
+                aria-label="Share on Pinterest"
+                title="Share on Pinterest"
+              >
+                P
+              </a>
+
+              <a
+                href={xShareHref}
+                target="_blank"
+                rel="noreferrer"
+                className="grid h-10 w-10 place-items-center text-[38px] font-light leading-none text-[#2c2925] transition hover:-translate-y-0.5 hover:text-[#b98262]"
+                aria-label="Share on X"
+                title="Share on X"
+              >
+                𝕏
+              </a>
+
+              <a
+                href={facebookShareHref}
+                target="_blank"
+                rel="noreferrer"
+                className="grid h-10 w-10 place-items-center text-[42px] font-bold leading-none text-[#2c2925] transition hover:-translate-y-0.5 hover:text-[#b98262]"
+                aria-label="Share on Facebook"
+                title="Share on Facebook"
+              >
+                f
+              </a>
             </div>
           </div>
 

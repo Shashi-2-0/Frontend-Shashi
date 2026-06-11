@@ -10,7 +10,7 @@ import {
   CatalogProduct,
   CatalogVariant,
 } from "@/lib/api/catalog.api";
-import { apiRequest } from "@/lib/api/client";
+import { addToCart } from "@/lib/api/cart.api";
 import { filterPublicVisibleProducts } from "@/lib/product-visibility";
 import { ArrowUpRight, Loader2, ShoppingBag, XCircle } from "lucide-react";
 
@@ -204,9 +204,9 @@ function findMatchingVariant(
 }
 
 function getProductDetailHref(product: CatalogProduct) {
-  const productId = getProductId(product);
+  const slugOrId = String(product.slug || product.id || product.productId || "").trim();
 
-  return productId ? `/bridesmaid/${productId}` : "#";
+  return slugOrId ? `/collection/${encodeURIComponent(slugOrId)}` : "#";
 }
 
 async function addProductToCart(
@@ -226,17 +226,12 @@ async function addProductToCart(
 
   const variantId = String(variant.variantId || variant.id || "");
 
-await apiRequest("/cart", {
-  method: "POST",
-  body: {
-    productId,
-    variantId,
-    quantity: 1,
-    size: selection.size || variant.size,
-    height: selection.height || variant.height,
-    color: variant.color || product.color || product.primaryColor,
-  },
-});
+await addToCart({
+  productId,
+  variantId,
+  quantity: 1,
+  deliveryOption: "STANDARD",
+} as any);
 }
 
 function CollectionPageContent() {

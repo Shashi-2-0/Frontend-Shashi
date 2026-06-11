@@ -36,6 +36,17 @@ import {
   type SearchProduct,
 } from "@/lib/api/search.api";
 
+
+type SiteHeaderBranding = {
+  brandName: string;
+  partnerBrandName: string;
+  brandLogoUrl: string;
+  partnerLogoUrl: string;
+  showPartnerBrand: boolean;
+  homeUrl: string;
+  partnerHomeUrl: string;
+};
+
 function getSafeCartItems(response: any): any[] {
   if (Array.isArray(response)) return response;
 
@@ -75,6 +86,52 @@ type SearchCategorySuggestion = {
 
 const RECENT_SEARCH_STORAGE_KEY = "shahsi_recent_searches";
 const MAX_RECENT_SEARCHES = 6;
+
+
+function unwrapSiteHeaderBranding(response: any): SiteHeaderBranding | null {
+  const data =
+    response?.data?.headerBranding ||
+    response?.data?.header ||
+    response?.data?.siteHeader ||
+    response?.data ||
+    response?.headerBranding ||
+    response?.header ||
+    response?.siteHeader ||
+    response ||
+    null;
+
+  if (!data || typeof data !== "object") return null;
+
+  return {
+    brandName: String(data.brandName || "").trim(),
+    partnerBrandName: String(data.partnerBrandName || "").trim(),
+    brandLogoUrl: String(data.brandLogoUrl || "").trim(),
+    partnerLogoUrl: String(data.partnerLogoUrl || "").trim(),
+    showPartnerBrand: data.showPartnerBrand === true,
+    homeUrl: String(data.homeUrl || "").trim(),
+    partnerHomeUrl: String(data.partnerHomeUrl || "").trim(),
+  };
+}
+
+async function getSiteHeaderBranding(): Promise<SiteHeaderBranding | null> {
+  try {
+    const res = await fetch("/api/proxy/site/header", {
+      method: "GET",
+      cache: "no-store",
+    });
+
+    const json = await res.json();
+
+    if (!res.ok || json?.success === false) {
+      return null;
+    }
+
+    return unwrapSiteHeaderBranding(json);
+  } catch (error) {
+    console.error("Failed to fetch site header branding:", error);
+    return null;
+  }
+}
 
 function normalizeSearchText(value: any) {
   return String(value || "")
@@ -334,9 +391,15 @@ function removeRecentSearch(query: string) {
 }
 
 export default function SiteHeader() {
+
+  const [siteHeaderBranding, setSiteHeaderBranding] =
+  useState<SiteHeaderBranding | null>(null);
   const { count: wishlistCount, refreshWishlistCount } = useWishlist();
 
   const searchWrapRef = useRef<HTMLDivElement | null>(null);
+
+
+
 
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
@@ -370,6 +433,12 @@ export default function SiteHeader() {
   return getMatchedSearchCategories(categoryTree, searchQuery);
 }, [categoryTree, searchQuery]);
 
+async function loadSiteHeaderBranding() {
+  const branding = await getSiteHeaderBranding();
+  setSiteHeaderBranding(branding);
+}
+
+
   async function loadCartCount() {
     try {
       const response = await getCart();
@@ -396,6 +465,9 @@ setCategoryTree(tree);
       setCategoryTree([]);
     }
   }
+
+
+
 
   useEffect(() => {
   refreshWishlistCount();
@@ -448,22 +520,23 @@ setCategoryTree(tree);
   };
 }, [searchOpen]);
 
-  useEffect(() => {
+useEffect(() => {
+  loadCartCount();
+  loadCategoryTree();
+  loadSiteHeaderBranding();
+
+  function handleCartUpdated() {
     loadCartCount();
-    loadCategoryTree();
+  }
 
-    function handleCartUpdated() {
-      loadCartCount();
-    }
+  window.addEventListener("cart-updated", handleCartUpdated);
+  window.addEventListener("focus", handleCartUpdated);
 
-    window.addEventListener("cart-updated", handleCartUpdated);
-    window.addEventListener("focus", handleCartUpdated);
-
-    return () => {
-      window.removeEventListener("cart-updated", handleCartUpdated);
-      window.removeEventListener("focus", handleCartUpdated);
-    };
-  }, []);
+  return () => {
+    window.removeEventListener("cart-updated", handleCartUpdated);
+    window.removeEventListener("focus", handleCartUpdated);
+  };
+}, []);
 
   useEffect(() => {
     const query = searchQuery.trim();
@@ -571,7 +644,18 @@ setSearchResults(results);
 
   setSearchOpen(true);
 }
+const mainBrandName = siteHeaderBranding?.brandName || "";
+const partnerBrandName = siteHeaderBranding?.partnerBrandName || "";
+const brandLogoUrl = siteHeaderBranding?.brandLogoUrl || "";
+const partnerLogoUrl = siteHeaderBranding?.partnerLogoUrl || "";
+const homeUrl = siteHeaderBranding?.homeUrl || "/";
+const partnerHomeUrl = siteHeaderBranding?.partnerHomeUrl || "";
 
+const hasMainBrand = Boolean(mainBrandName || brandLogoUrl);
+
+const hasPartnerBrand = Boolean(
+  siteHeaderBranding?.showPartnerBrand && (partnerBrandName || partnerLogoUrl),
+);
   return (
     <>
       <header
@@ -620,23 +704,45 @@ setSearchResults(results);
         </div>
 
         <div className="grid min-h-[94px] items-center border-b border-[#ddd5c9] px-6 py-5 lg:grid-cols-[410px_1fr_190px] lg:px-10">
-          <div className="flex items-center gap-[23px]">
-            <a
-              href="/"
-              className="border-b-2 border-[#15100c] pb-[11px] pr-[10px] font-serif text-[38px] leading-none tracking-[-0.06em] transition hover:text-[#b98262]"
-            >
-              Shahsi
-            </a>
+         <div className="flex items-center gap-[23px]">
+  {hasMainBrand ? (
+    <a
+     href={homeUrl}
+      className="border-b-2 border-[#15100c] pb-[11px] pr-[10px] font-serif text-[38px] leading-none tracking-[-0.06em] transition hover:text-[#b98262]"
+    >
+      {brandLogoUrl ? (
+        <img
+        src={brandLogoUrl}
+      alt={mainBrandName || "Brand logo"}
+          className="h-[44px] w-auto object-contain"
+        />
+      ) : (
+      mainBrandName
+      )}
+    </a>
+  ) : null}
 
-            <span className="h-[36px] w-px bg-[#d8d0c4]" />
+  {hasMainBrand && hasPartnerBrand ? (
+    <span className="h-[36px] w-px bg-[#d8d0c4]" />
+  ) : null}
 
-            <a
-              href="/subscription"
-              className="pb-[10px] font-serif text-[36px] italic leading-none tracking-[-0.04em] text-[#5f5a55] transition hover:text-[#b98262]"
-            >
-              GownLoop
-            </a>
-          </div>
+  {hasPartnerBrand ? (
+    <a
+     href={partnerHomeUrl}
+      className="pb-[10px] font-serif text-[36px] italic leading-none tracking-[-0.04em] text-[#5f5a55] transition hover:text-[#b98262]"
+    >
+      {partnerLogoUrl ? (
+        <img
+         src={partnerLogoUrl}
+         alt={partnerBrandName || "Partner brand logo"}
+          className="h-[42px] w-auto object-contain"
+        />
+      ) : (
+       partnerBrandName
+      )}
+    </a>
+  ) : null}
+</div>
 
      <form
   onSubmit={handleSearchSubmit}
